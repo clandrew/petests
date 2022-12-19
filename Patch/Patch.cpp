@@ -6,6 +6,36 @@
 #include <vector>
 #include <Windows.h>
 
+int SeekInTextSection(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned char* pTextSection, unsigned char const* seekPattern, int seekPatternLength)
+{
+	int matchesFound = 0;
+	int matchIndex = -1;
+	for (int i = 0; i < pTextSectionHeader->SizeOfRawData - seekPatternLength + 1; ++i)
+	{
+		bool matchFound = true;
+		for (int j = 0; j < seekPatternLength; ++j)
+		{
+			if (pTextSection[i + j] != seekPattern[j])
+			{
+				matchFound = false;
+				break;
+			}
+		}
+		if (matchFound)
+		{
+			matchesFound++;
+			matchIndex = i;
+		}
+	}
+
+	if (matchesFound != 1)
+	{
+		return -1;
+	}
+
+	return matchIndex;
+}
+
 bool ChangeIterationCount(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned char* pTextSection)
 {
 	// Look for
@@ -97,10 +127,23 @@ int main()
 	}
 
 	bool result = true;
-	
-	//result = ChangeIterationCount(pTextSectionHeader, pTextSection);
 
-	// Insert into the iteration body
+	// Insert an extra call into the iteration body
+	// These call-relatives are cout:
+	// 00A31013 E8 18 01 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h) 
+	// 00A31044 E8 E7 00 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h)
+	// 00A3105A E8 D1 00 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h)
+
+	// Look for empty space to jump out
+	// First, look for this pattern
+	// 002B105A E8 D1 00 00 00       call        std::operator<<<std::char_traits<char> > (02B1130h)
+	// 002B105F 33 C0 xor eax, eax
+	// 002B1061 5E                   pop         esi
+	// 002B1062 8B E5                mov         esp, ebp
+	// 002B1064 5D                   pop         ebp
+	// 002B1065 C3                   ret
+	const unsigned char seekPattern[] = {0xE8, 0xD1, 0x00, 0x00, 0x00, 0x33, 0xC0, 0x5E, 0x8B, 0xE5, 0x5D, 0xC3};
+	int matchIndex = SeekInTextSection(pTextSectionHeader, pTextSection, seekPattern, _countof(seekPattern));
 
 	if (!result)
 	{
