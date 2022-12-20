@@ -128,22 +128,42 @@ int main()
 
 	bool result = true;
 
-	// Insert an extra call into the iteration body
-	// These call-relatives are cout:
-	// 00A31013 E8 18 01 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h) 
-	// 00A31044 E8 E7 00 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h)
-	// 00A3105A E8 D1 00 00 00       call        std::operator<<<std::char_traits<char> > (0A31130h)
-
-	// Look for empty space to jump out
-	// First, look for this pattern
-	// 002B105A E8 D1 00 00 00       call        std::operator<<<std::char_traits<char> > (02B1130h)
-	// 002B105F 33 C0 xor eax, eax
-	// 002B1061 5E                   pop         esi
-	// 002B1062 8B E5                mov         esp, ebp
-	// 002B1064 5D                   pop         ebp
-	// 002B1065 C3                   ret
-	const unsigned char seekPattern[] = {0xE8, 0xD1, 0x00, 0x00, 0x00, 0x33, 0xC0, 0x5E, 0x8B, 0xE5, 0x5D, 0xC3};
-	int matchIndex = SeekInTextSection(pTextSectionHeader, pTextSection, seekPattern, _countof(seekPattern));
+	// Look for a bunch of int 3s.
+	int longestSequenceBegin = -1;
+	int longestSequenceLength = -1;
+	bool inSequence = false;
+	int sequenceBegin = -1;
+	int sequenceLength = -1;
+	for (int i = 0; i < pTextSectionHeader->SizeOfRawData; ++i)
+	{
+		if (!inSequence)
+		{
+			if (pTextSection[i] == 0xCC)
+			{
+				inSequence = true;
+				sequenceBegin = i;
+				sequenceLength = 1;
+			}
+		}
+		else
+		{
+			if (pTextSection[i] == 0xCC)
+			{
+				sequenceLength++;
+			}
+			else
+			{
+				inSequence = false;
+				if (sequenceLength > longestSequenceLength)
+				{
+					longestSequenceBegin = sequenceBegin;
+					longestSequenceLength = sequenceLength;
+					sequenceBegin = -1;
+					sequenceLength = -1;
+				}
+			}
+		}
+	}
 
 	if (!result)
 	{
