@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <Windows.h>
+#include <assert.h>
 
 int SeekInTextSection(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned char* pTextSection, unsigned char const* seekPattern, int seekPatternLength)
 {
@@ -63,21 +64,20 @@ int main()
 {
 	// Open the source exe
 	std::string sourcePath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld.exe";
-	std::vector<unsigned char> peFileBytes;
+	std::vector<unsigned char> sourceFileBytes;
 	{
 		FILE* pFile;
 		fopen_s(&pFile, sourcePath.c_str(), "rb");
 		fseek(pFile, 0, SEEK_END);
 		long fileSize = ftell(pFile);
 		fseek(pFile, 0, SEEK_SET);
-		peFileBytes.resize(fileSize);
-		fread(peFileBytes.data(), 1, fileSize, pFile);
+		sourceFileBytes.resize(fileSize);
+		fread(sourceFileBytes.data(), 1, fileSize, pFile);
 		fclose(pFile);
 	}
 
-	// Look up .text
 	IMAGE_DOS_HEADER* pDosHeader{};
-	pDosHeader = (IMAGE_DOS_HEADER*)(peFileBytes.data());
+	pDosHeader = (IMAGE_DOS_HEADER*)(sourceFileBytes.data());
 	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 	{
 		return -1;
@@ -92,90 +92,98 @@ int main()
 		return -1;
 	}
 
+	assert((void*)&pNTHeader->Signature == pNTHeader);
+
+	int sourceOffset = 0;
+
+	// Rip DOS info
+	std::vector<unsigned char> dosHeaderBytes;
+	std::fill(dosHeaderBytes.begin(), dosHeaderBytes.end(), 0);
+	for (int i = 0; i < pDosHeader->e_lfanew; ++i)
+	{
+		dosHeaderBytes.push_back(sourceFileBytes[sourceOffset]);
+		sourceOffset++;
+	}
+
+	// Rip NT info
+	std::vector<unsigned char> ntHeaderBytes;
+	std::fill(ntHeaderBytes.begin(), ntHeaderBytes.end(), 0);
+	for (int i = 0; i < sizeof(IMAGE_NT_HEADERS); ++i)
+	{
+		ntHeaderBytes.push_back(sourceFileBytes[sourceOffset]);
+		sourceOffset++;
+	}
+
+	struct Section
+	{
+		IMAGE_SECTION_HEADER* pSourceHeader;
+		std::vector<unsigned char> Data;
+	};
+
+	std::vector<Section> sections;
 	int numberOfSections = pNTHeader->FileHeader.NumberOfSections;
-	int sizeOfCode = pNTHeader->OptionalHeader.SizeOfCode;
-	int entrypoint = pNTHeader->OptionalHeader.AddressOfEntryPoint;
+	sections.resize(numberOfSections);
 
-	std::vector<IMAGE_SECTION_HEADER*> sectionHeaders;
-	unsigned char* pSectionHeader = pSignature + sizeof(IMAGE_NT_HEADERS);
+	unsigned char* pStartOfSectionHeaders = pSignature + sizeof(IMAGE_NT_HEADERS);
+	unsigned char* pSectionHeader = pStartOfSectionHeaders;
 	for (int i = 0; i < numberOfSections; ++i)
 	{
-		sectionHeaders.push_back((IMAGE_SECTION_HEADER*)pSectionHeader);
+		sections[i].pSourceHeader = (IMAGE_SECTION_HEADER*)pSectionHeader;
 		pSectionHeader += sizeof(IMAGE_SECTION_HEADER);
-	}
 
-	IMAGE_SECTION_HEADER* pTextSectionHeader{};
-	unsigned char* pTextSection = nullptr;
-	for (int i = 0; i < numberOfSections; ++i)
-	{
-		unsigned char* pName = sectionHeaders[i]->Name;
-		if (pName[0] == '.' && pName[1] == 't' && pName[2] == 'e' && pName[3] == 'x' && pName[4] == 't' && pName[5] == 0 && pName[6] == 0 && pName[7] == 0)
+		int sectionSize = sections[i].pSourceHeader->SizeOfRawData;
+		sections[i].Data.resize(sectionSize);
+		std::fill(sections[i].Data.begin(), sections[i].Data.end(), 0);
+		unsigned char* pStartOfSectionData = sourceFileBytes.data() + sections[i].pSourceHeader->PointerToRawData;
+		for (int j = 0; j < sectionSize; ++j)
 		{
-			if (pTextSection)
-			{
-				return -1;
-			}
-			pTextSectionHeader = sectionHeaders[i];
-			pTextSection = peFileBytes.data() + sectionHeaders[i]->PointerToRawData;
-			break;
+			sections[i].Data[j] = *(pStartOfSectionData + j);
 		}
 	}
 
-	if (!pTextSection)
+	// Assert sections are in order
+	for (int i = 0; i < numberOfSections-1; ++i)
 	{
-		return -1;
+		assert(sections[i].pSourceHeader->PointerToRawData < sections[i + 1].pSourceHeader->PointerToRawData);
 	}
 
-	bool result = true;
+	std::vector<unsigned char> destFileBytes;
+	int targetSize = sourceFileBytes.size();
+	destFileBytes.resize(targetSize);
+	std::fill(destFileBytes.begin(), destFileBytes.end(), 0);
 
-	// Look for a bunch of int 3s.
-	int longestSequenceBegin = -1;
-	int longestSequenceLength = -1;
-	bool inSequence = false;
-	int sequenceBegin = -1;
-	int sequenceLength = -1;
-	for (int i = 0; i < pTextSectionHeader->SizeOfRawData; ++i)
 	{
-		if (!inSequence)
+		int destOffset = 0;
+
+		memcpy(destFileBytes.data() + destOffset, dosHeaderBytes.data(), dosHeaderBytes.size());
+		destOffset += dosHeaderBytes.size();
+
+		memcpy(destFileBytes.data() + destOffset, ntHeaderBytes.data(), ntHeaderBytes.size());
+		destOffset += ntHeaderBytes.size();
+
+		for (int i = 0; i < sections.size(); ++i)
 		{
-			if (pTextSection[i] == 0xCC)
-			{
-				inSequence = true;
-				sequenceBegin = i;
-				sequenceLength = 1;
-			}
+			memcpy(destFileBytes.data() + destOffset, sections[i].pSourceHeader, sizeof(IMAGE_SECTION_HEADER));
+			destOffset += sizeof(IMAGE_SECTION_HEADER);
 		}
-		else
+
+		for (int i = 0; i < sections.size(); ++i)
 		{
-			if (pTextSection[i] == 0xCC)
-			{
-				sequenceLength++;
-			}
-			else
-			{
-				inSequence = false;
-				if (sequenceLength > longestSequenceLength)
-				{
-					longestSequenceBegin = sequenceBegin;
-					longestSequenceLength = sequenceLength;
-					sequenceBegin = -1;
-					sequenceLength = -1;
-				}
-			}
+			destOffset = sections[i].pSourceHeader->PointerToRawData;
+			memcpy(destFileBytes.data() + destOffset, sections[i].Data.data(), sections[i].Data.size());
 		}
 	}
 
-	if (!result)
-	{
-		return -1;
-	}
 
+	// Dump the result file
 	std::string destPath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld2.exe";
 
 	{
 		FILE* pFile;
 		fopen_s(&pFile, destPath.c_str(), "wb");
-		fwrite(peFileBytes.data(), 1, peFileBytes.size(), pFile);
+
+		fwrite(destFileBytes.data(), 1, destFileBytes.size(), pFile);
+		
 		fclose(pFile);
 	}
 }
