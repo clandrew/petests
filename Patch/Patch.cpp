@@ -7,59 +7,6 @@
 #include <Windows.h>
 #include <assert.h>
 
-int SeekInTextSection(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned char* pTextSection, unsigned char const* seekPattern, int seekPatternLength)
-{
-	int matchesFound = 0;
-	int matchIndex = -1;
-	for (int i = 0; i < pTextSectionHeader->SizeOfRawData - seekPatternLength + 1; ++i)
-	{
-		bool matchFound = true;
-		for (int j = 0; j < seekPatternLength; ++j)
-		{
-			if (pTextSection[i + j] != seekPattern[j])
-			{
-				matchFound = false;
-				break;
-			}
-		}
-		if (matchFound)
-		{
-			matchesFound++;
-			matchIndex = i;
-		}
-	}
-
-	if (matchesFound != 1)
-	{
-		return -1;
-	}
-
-	return matchIndex;
-}
-
-bool ChangeIterationCount(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned char* pTextSection)
-{
-	// Look for
-	// 46				inc		esi
-	// 83 FE 0A			cmp		esi, 0Ah
-	int matchesFound = 0;
-	for (int i = 0; i < pTextSectionHeader->SizeOfRawData - 3; ++i)
-	{
-		if (pTextSection[i] == 0x46 && pTextSection[i + 1] == 0x83 && pTextSection[i + 2] == 0xFE && pTextSection[i + 3] == 0x0A)
-		{
-			pTextSection[i + 3] = 0x10;
-			matchesFound++;
-		}
-	}
-
-	if (matchesFound != 1)
-	{
-		return false;
-	}
-
-	return true;
-}
-
 std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFileBytes)
 {
 	std::vector<unsigned char> destFileBytes;
@@ -112,12 +59,18 @@ std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFi
 	int numberOfSections = pNTHeader->FileHeader.NumberOfSections;
 	sections.resize(numberOfSections);
 
+	Section* pFirstTextSection = nullptr;
 	unsigned char* pStartOfSectionHeaders = pSignature + sizeof(IMAGE_NT_HEADERS);
 	unsigned char* pSectionHeader = pStartOfSectionHeaders;
 	for (int i = 0; i < numberOfSections; ++i)
 	{
 		sections[i].pSourceHeader = (IMAGE_SECTION_HEADER*)pSectionHeader;
 		pSectionHeader += sizeof(IMAGE_SECTION_HEADER);
+
+		if (!pFirstTextSection && strcmp((char*)sections[i].pSourceHeader->Name, ".text") == 0)
+		{
+			pFirstTextSection = &sections[i];
+		}
 
 		int sectionSize = sections[i].pSourceHeader->SizeOfRawData;
 		sections[i].Data.resize(sectionSize);
@@ -135,9 +88,19 @@ std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFi
 		assert(sections[i].pSourceHeader->PointerToRawData < sections[i + 1].pSourceHeader->PointerToRawData);
 	}
 
-	int targetSize = sourceFileBytes.size();
+	// Do expansion
+	int extraSize = 1000;
+	for (int i = 0; i < extraSize; ++i)
+	{
+		pFirstTextSection->Data.push_back(0);
+	}
+
+	int targetSize = sourceFileBytes.size() + extraSize;
 	destFileBytes.resize(targetSize);
 	std::fill(destFileBytes.begin(), destFileBytes.end(), 0);
+
+	// Expand the first text section
+
 
 	{
 		int destOffset = 0;
