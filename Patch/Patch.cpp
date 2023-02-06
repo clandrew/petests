@@ -60,36 +60,24 @@ bool ChangeIterationCount(IMAGE_SECTION_HEADER* pTextSectionHeader, unsigned cha
 	return true;
 }
 
-int main()
+std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFileBytes)
 {
-	// Open the source exe
-	std::string sourcePath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld.exe";
-	std::vector<unsigned char> sourceFileBytes;
-	{
-		FILE* pFile;
-		fopen_s(&pFile, sourcePath.c_str(), "rb");
-		fseek(pFile, 0, SEEK_END);
-		long fileSize = ftell(pFile);
-		fseek(pFile, 0, SEEK_SET);
-		sourceFileBytes.resize(fileSize);
-		fread(sourceFileBytes.data(), 1, fileSize, pFile);
-		fclose(pFile);
-	}
+	std::vector<unsigned char> destFileBytes;
 
 	IMAGE_DOS_HEADER* pDosHeader{};
 	pDosHeader = (IMAGE_DOS_HEADER*)(sourceFileBytes.data());
 	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 	{
-		return -1;
+		return destFileBytes;
 	}
 
 	IMAGE_NT_HEADERS* pNTHeader{};
-	pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader) +pDosHeader->e_lfanew);
+	pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader)+pDosHeader->e_lfanew);
 
 	unsigned char* pSignature = (unsigned char*)(&(pNTHeader->Signature));
 	if (pSignature[0] != 'P' || pSignature[1] != 'E' || pSignature[2] != 0 || pSignature[3] != 0)
 	{
-		return -1;
+		return destFileBytes;
 	}
 
 	assert((void*)&pNTHeader->Signature == pNTHeader);
@@ -134,7 +122,7 @@ int main()
 		int sectionSize = sections[i].pSourceHeader->SizeOfRawData;
 		sections[i].Data.resize(sectionSize);
 		std::fill(sections[i].Data.begin(), sections[i].Data.end(), 0);
-		unsigned char* pStartOfSectionData = sourceFileBytes.data() + sections[i].pSourceHeader->PointerToRawData;
+		unsigned char const* pStartOfSectionData = sourceFileBytes.data() + sections[i].pSourceHeader->PointerToRawData;
 		for (int j = 0; j < sectionSize; ++j)
 		{
 			sections[i].Data[j] = *(pStartOfSectionData + j);
@@ -142,12 +130,11 @@ int main()
 	}
 
 	// Assert sections are in order
-	for (int i = 0; i < numberOfSections-1; ++i)
+	for (int i = 0; i < numberOfSections - 1; ++i)
 	{
 		assert(sections[i].pSourceHeader->PointerToRawData < sections[i + 1].pSourceHeader->PointerToRawData);
 	}
 
-	std::vector<unsigned char> destFileBytes;
 	int targetSize = sourceFileBytes.size();
 	destFileBytes.resize(targetSize);
 	std::fill(destFileBytes.begin(), destFileBytes.end(), 0);
@@ -174,6 +161,30 @@ int main()
 		}
 	}
 
+	return destFileBytes;
+}
+
+int main()
+{
+	// Open the source exe
+	std::string sourcePath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld.exe";
+	std::vector<unsigned char> sourceFileBytes;
+	{
+		FILE* pFile;
+		fopen_s(&pFile, sourcePath.c_str(), "rb");
+		fseek(pFile, 0, SEEK_END);
+		long fileSize = ftell(pFile);
+		fseek(pFile, 0, SEEK_SET);
+		sourceFileBytes.resize(fileSize);
+		fread(sourceFileBytes.data(), 1, fileSize, pFile);
+		fclose(pFile);
+	}
+
+	std::vector<unsigned char> destFileBytes = ExpandText(sourceFileBytes);
+	if (destFileBytes.size() == 0)
+	{
+		return -1;
+	}
 
 	// Dump the result file
 	std::string destPath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld2.exe";
