@@ -7,132 +7,145 @@
 #include <Windows.h>
 #include <assert.h>
 
-std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFileBytes, int amountToExpandBy)
+class Executable
 {
-	std::vector<unsigned char> destFileBytes;
-
-	IMAGE_DOS_HEADER* pDosHeader{};
-	pDosHeader = (IMAGE_DOS_HEADER*)(sourceFileBytes.data());
-	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
-	{
-		return destFileBytes;
-	}
-
-	IMAGE_NT_HEADERS* pNTHeader{};
-	pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader)+pDosHeader->e_lfanew);
-
-	unsigned char* pSignature = (unsigned char*)(&(pNTHeader->Signature));
-	if (pSignature[0] != 'P' || pSignature[1] != 'E' || pSignature[2] != 0 || pSignature[3] != 0)
-	{
-		return destFileBytes;
-	}
-
-	assert((void*)&pNTHeader->Signature == pNTHeader);
-
-	int sourceOffset = 0;
-
-	// Rip DOS info
-	std::vector<unsigned char> dosHeaderBytes;
-	std::fill(dosHeaderBytes.begin(), dosHeaderBytes.end(), 0);
-	for (int i = 0; i < pDosHeader->e_lfanew; ++i)
-	{
-		dosHeaderBytes.push_back(sourceFileBytes[sourceOffset]);
-		sourceOffset++;
-	}
-
-	// Rip NT info
-	std::vector<unsigned char> ntHeaderBytes;
-	std::fill(ntHeaderBytes.begin(), ntHeaderBytes.end(), 0);
-	for (int i = 0; i < sizeof(IMAGE_NT_HEADERS); ++i)
-	{
-		ntHeaderBytes.push_back(sourceFileBytes[sourceOffset]);
-		sourceOffset++;
-	}
+	std::vector<unsigned char> const* m_pSourceFileBytes;
+	int m_size;
+	std::vector<unsigned char> m_dosHeaderBytes;
+	std::vector<unsigned char> m_ntHeaderBytes;
 
 	struct Section
 	{
 		IMAGE_SECTION_HEADER* pSourceHeader;
 		std::vector<unsigned char> Data;
 	};
+	std::vector<Section> m_sections;
 
-	std::vector<Section> sections;
-	int numberOfSections = pNTHeader->FileHeader.NumberOfSections;
-	sections.resize(numberOfSections);
+public:
 
-	Section* pFirstTextSection = nullptr;
-	unsigned char* pStartOfSectionHeaders = pSignature + sizeof(IMAGE_NT_HEADERS);
-	unsigned char* pSectionHeader = pStartOfSectionHeaders;
-	for (int i = 0; i < numberOfSections; ++i)
+	bool LoadSections(std::vector<unsigned char> const* pSourceFileBytes)
 	{
-		sections[i].pSourceHeader = (IMAGE_SECTION_HEADER*)pSectionHeader;
-		pSectionHeader += sizeof(IMAGE_SECTION_HEADER);
+		m_pSourceFileBytes = pSourceFileBytes;
+		m_size = m_pSourceFileBytes->size();
 
-		if (strcmp((char*)sections[i].pSourceHeader->Name, ".text") == 0)
+		IMAGE_DOS_HEADER* pDosHeader{};
+		pDosHeader = (IMAGE_DOS_HEADER*)(pSourceFileBytes->data());
+		if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 		{
-			if (!pFirstTextSection)
+			return false;
+		}
+
+		IMAGE_NT_HEADERS* pNTHeader{};
+		pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader)+pDosHeader->e_lfanew);
+
+		unsigned char* pSignature = (unsigned char*)(&(pNTHeader->Signature));
+		if (pSignature[0] != 'P' || pSignature[1] != 'E' || pSignature[2] != 0 || pSignature[3] != 0)
+		{
+			return false;
+		}
+
+		assert((void*)&pNTHeader->Signature == pNTHeader);
+
+		int sourceOffset = 0;
+
+		for (int i = 0; i < pDosHeader->e_lfanew; ++i)
+		{
+			m_dosHeaderBytes.push_back((*pSourceFileBytes)[sourceOffset]);
+			sourceOffset++;
+		}
+
+		for (int i = 0; i < sizeof(IMAGE_NT_HEADERS); ++i)
+		{
+			m_ntHeaderBytes.push_back((*pSourceFileBytes)[sourceOffset]);
+			sourceOffset++;
+		}
+
+		int numberOfSections = pNTHeader->FileHeader.NumberOfSections;
+		m_sections.resize(numberOfSections);
+
+		unsigned char* pStartOfSectionHeaders = pSignature + sizeof(IMAGE_NT_HEADERS);
+		unsigned char* pSectionHeader = pStartOfSectionHeaders;
+		for (int i = 0; i < numberOfSections; ++i)
+		{
+			m_sections[i].pSourceHeader = (IMAGE_SECTION_HEADER*)pSectionHeader;
+			pSectionHeader += sizeof(IMAGE_SECTION_HEADER);
+
+			int sectionSize = m_sections[i].pSourceHeader->SizeOfRawData;
+			m_sections[i].Data.resize(sectionSize);
+			std::fill(m_sections[i].Data.begin(), m_sections[i].Data.end(), 0);
+			unsigned char const* pStartOfSectionData = pSourceFileBytes->data() + m_sections[i].pSourceHeader->PointerToRawData;
+			for (int j = 0; j < sectionSize; ++j)
 			{
-				pFirstTextSection = &sections[i];
-			}
-			else
-			{
-				// Multiple text sections. Ambiguous
-				return destFileBytes;
+				m_sections[i].Data[j] = *(pStartOfSectionData + j);
 			}
 		}
 
-		int sectionSize = sections[i].pSourceHeader->SizeOfRawData;
-		sections[i].Data.resize(sectionSize);
-		std::fill(sections[i].Data.begin(), sections[i].Data.end(), 0);
-		unsigned char const* pStartOfSectionData = sourceFileBytes.data() + sections[i].pSourceHeader->PointerToRawData;
-		for (int j = 0; j < sectionSize; ++j)
+		// Assert sections are in order
+		for (int i = 0; i < numberOfSections - 1; ++i)
 		{
-			sections[i].Data[j] = *(pStartOfSectionData + j);
+			assert(m_sections[i].pSourceHeader->PointerToRawData < m_sections[i + 1].pSourceHeader->PointerToRawData);
 		}
+
+		return true;
 	}
 
-	// Assert sections are in order
-	for (int i = 0; i < numberOfSections - 1; ++i)
+	bool ExpandText(int amountToExpandBy)
 	{
-		assert(sections[i].pSourceHeader->PointerToRawData < sections[i + 1].pSourceHeader->PointerToRawData);
+		// Find the text section. Assume there's only one
+		Section* pTextSection = nullptr;
+		for (int i = 0; i < m_sections.size(); ++i)
+		{
+			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
+			{
+				if (!pTextSection)
+				{
+					pTextSection = &m_sections[i];
+				}
+				else
+				{
+					return false; // Multiple text sections. Ambiguous
+				}
+			}
+		}
+
+		// Do expansion
+		for (int i = 0; i < amountToExpandBy; ++i)
+		{
+			pTextSection->Data.push_back(0);
+		}
+
+		m_size += amountToExpandBy;
+		return true;
 	}
 
-	// Do expansion
-	for (int i = 0; i < amountToExpandBy; ++i)
+	std::vector<unsigned char> SaveSections()
 	{
-		pFirstTextSection->Data.push_back(0);
-	}
+		std::vector<unsigned char> destFileBytes;
+		destFileBytes.resize(m_size);
 
-	int targetSize = sourceFileBytes.size() + amountToExpandBy;
-	destFileBytes.resize(targetSize);
-	std::fill(destFileBytes.begin(), destFileBytes.end(), 0);
-
-	// Expand the first text section
-
-
-	{
 		int destOffset = 0;
 
-		memcpy(destFileBytes.data() + destOffset, dosHeaderBytes.data(), dosHeaderBytes.size());
-		destOffset += dosHeaderBytes.size();
+		memcpy(destFileBytes.data() + destOffset, m_dosHeaderBytes.data(), m_dosHeaderBytes.size());
+		destOffset += m_dosHeaderBytes.size();
 
-		memcpy(destFileBytes.data() + destOffset, ntHeaderBytes.data(), ntHeaderBytes.size());
-		destOffset += ntHeaderBytes.size();
+		memcpy(destFileBytes.data() + destOffset, m_ntHeaderBytes.data(), m_ntHeaderBytes.size());
+		destOffset += m_ntHeaderBytes.size();
 
-		for (int i = 0; i < sections.size(); ++i)
+		for (int i = 0; i < m_sections.size(); ++i)
 		{
-			memcpy(destFileBytes.data() + destOffset, sections[i].pSourceHeader, sizeof(IMAGE_SECTION_HEADER));
+			memcpy(destFileBytes.data() + destOffset, m_sections[i].pSourceHeader, sizeof(IMAGE_SECTION_HEADER));
 			destOffset += sizeof(IMAGE_SECTION_HEADER);
 		}
 
-		for (int i = 0; i < sections.size(); ++i)
+		for (int i = 0; i < m_sections.size(); ++i)
 		{
-			destOffset = sections[i].pSourceHeader->PointerToRawData;
-			memcpy(destFileBytes.data() + destOffset, sections[i].Data.data(), sections[i].Data.size());
+			destOffset = m_sections[i].pSourceHeader->PointerToRawData;
+			memcpy(destFileBytes.data() + destOffset, m_sections[i].Data.data(), m_sections[i].Data.size());
 		}
-	}
 
-	return destFileBytes;
-}
+		return destFileBytes;
+	}
+};
 
 int main()
 {
@@ -150,21 +163,18 @@ int main()
 		fclose(pFile);
 	}
 
-	std::vector<unsigned char> destFileBytes = ExpandText(sourceFileBytes, 5000);
-	if (destFileBytes.size() == 0)
-	{
-		return -1;
-	}
+	Executable e;
+	e.LoadSections(&sourceFileBytes);
+	e.ExpandText(1000);
+	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
-	// Dump the result file
+	// Dump the result
 	std::string destPath = "D:\\repos\\PETests\\HelloWorld\\Release\\HelloWorld2.exe";
 
 	{
 		FILE* pFile;
 		fopen_s(&pFile, destPath.c_str(), "wb");
-
-		fwrite(destFileBytes.data(), 1, destFileBytes.size(), pFile);
-		
+		fwrite(destFileBytes.data(), 1, destFileBytes.size(), pFile);		
 		fclose(pFile);
 	}
 }
