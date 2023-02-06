@@ -7,7 +7,7 @@
 #include <Windows.h>
 #include <assert.h>
 
-std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFileBytes)
+std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFileBytes, int amountToExpandBy)
 {
 	std::vector<unsigned char> destFileBytes;
 
@@ -67,9 +67,17 @@ std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFi
 		sections[i].pSourceHeader = (IMAGE_SECTION_HEADER*)pSectionHeader;
 		pSectionHeader += sizeof(IMAGE_SECTION_HEADER);
 
-		if (!pFirstTextSection && strcmp((char*)sections[i].pSourceHeader->Name, ".text") == 0)
+		if (strcmp((char*)sections[i].pSourceHeader->Name, ".text") == 0)
 		{
-			pFirstTextSection = &sections[i];
+			if (!pFirstTextSection)
+			{
+				pFirstTextSection = &sections[i];
+			}
+			else
+			{
+				// Multiple text sections. Ambiguous
+				return destFileBytes;
+			}
 		}
 
 		int sectionSize = sections[i].pSourceHeader->SizeOfRawData;
@@ -89,13 +97,12 @@ std::vector<unsigned char> ExpandText(std::vector<unsigned char> const& sourceFi
 	}
 
 	// Do expansion
-	int extraSize = 1000;
-	for (int i = 0; i < extraSize; ++i)
+	for (int i = 0; i < amountToExpandBy; ++i)
 	{
 		pFirstTextSection->Data.push_back(0);
 	}
 
-	int targetSize = sourceFileBytes.size() + extraSize;
+	int targetSize = sourceFileBytes.size() + amountToExpandBy;
 	destFileBytes.resize(targetSize);
 	std::fill(destFileBytes.begin(), destFileBytes.end(), 0);
 
@@ -143,7 +150,7 @@ int main()
 		fclose(pFile);
 	}
 
-	std::vector<unsigned char> destFileBytes = ExpandText(sourceFileBytes);
+	std::vector<unsigned char> destFileBytes = ExpandText(sourceFileBytes, 5000);
 	if (destFileBytes.size() == 0)
 	{
 		return -1;
