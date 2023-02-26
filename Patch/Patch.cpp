@@ -20,6 +20,7 @@ class Executable
 		std::vector<unsigned char> Data;
 	};
 	std::vector<Section> m_sections;
+	Section* m_pSingleTextSection;
 
 public:
 
@@ -78,6 +79,18 @@ public:
 			{
 				m_sections[i].Data[j] = *(pStartOfSectionData + j);
 			}
+
+			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
+			{
+				if (!m_pSingleTextSection)
+				{
+					m_pSingleTextSection = &m_sections[i];
+				}
+				else
+				{
+					m_pSingleTextSection = nullptr; // Multiple text sections. Ambiguous
+				}
+			}
 		}
 
 		// Assert sections are in order
@@ -91,27 +104,10 @@ public:
 
 	bool ExpandText(int amountToExpandBy)
 	{
-		// Find the text section. Assume there's only one
-		Section* pTextSection = nullptr;
-		for (int i = 0; i < m_sections.size(); ++i)
-		{
-			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
-			{
-				if (!pTextSection)
-				{
-					pTextSection = &m_sections[i];
-				}
-				else
-				{
-					return false; // Multiple text sections. Ambiguous
-				}
-			}
-		}
-
 		// Do expansion
 		for (int i = 0; i < amountToExpandBy; ++i)
 		{
-			pTextSection->Data.push_back(0);
+			m_pSingleTextSection->Data.push_back(0);
 		}
 
 		m_size += amountToExpandBy;
@@ -166,6 +162,8 @@ int main()
 	Executable e;
 	e.LoadSections(&sourceFileBytes);
 	e.ExpandText(1000);
+
+
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
 	// Dump the result
