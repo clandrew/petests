@@ -3,3 +3,4 @@
 /HelloWorld/Release/*
 /Patch/.vs/*
 /Patch/Debug/*
+*.bin

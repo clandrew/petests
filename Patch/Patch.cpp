@@ -18,6 +18,8 @@ class Executable
 	{
 		IMAGE_SECTION_HEADER* pSourceHeader;
 		std::vector<unsigned char> Data;
+		int OriginalPointerToRawData;
+		int UpdatedPointerToRawData;
 	};
 	std::vector<Section> m_sections;
 	Section* m_pSingleTextSection;
@@ -79,6 +81,8 @@ public:
 			{
 				m_sections[i].Data[j] = *(pStartOfSectionData + j);
 			}
+			m_sections[i].OriginalPointerToRawData = m_sections[i].pSourceHeader->PointerToRawData;
+			m_sections[i].UpdatedPointerToRawData = m_sections[i].pSourceHeader->PointerToRawData;
 
 			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
 			{
@@ -118,6 +122,8 @@ public:
 			return nullptr;
 		}
 
+		unsigned char* pOriginalRegion = m_pSingleTextSection->Data.data();
+
 		// Do expansion
 		for (int i = 0; i < amountToExpandBy; ++i)
 		{
@@ -126,7 +132,25 @@ public:
 
 		m_size += amountToExpandBy;
 
-		return m_pSingleTextSection->Data.data() + m_pSingleTextSection->Data.size() - amountToExpandBy;
+		unsigned char* pExpandedRegion = m_pSingleTextSection->Data.data() + m_pSingleTextSection->Data.size() - amountToExpandBy;
+
+		return pExpandedRegion;
+	}
+
+	void LayoutSections()
+	{
+		int destOffset = m_sections[0].pSourceHeader->PointerToRawData + m_sections[0].Data.size();
+		for (int i = 1; i < m_sections.size(); ++i)
+		{
+			m_sections[i].UpdatedPointerToRawData = destOffset;
+			destOffset += m_sections[i].Data.size();
+		}
+
+		for (int i = 0; i < m_sections.size(); ++i)
+		{
+			// Corrupts the executable.
+			//m_sections[i].pSourceHeader->PointerToRawData = m_sections[i].UpdatedPointerToRawData;
+		}
 	}
 
 	std::vector<unsigned char> SaveSections()
@@ -177,14 +201,9 @@ int main()
 	Executable e;
 	e.LoadSections(&sourceFileBytes);
 	e.DumpText("text.bin");
-	unsigned char* pSpace = e.ExpandText(1000);
+	unsigned char* pSpace = e.ExpandText(0x10);
 
-	for (int i = 0; i < 1000; ++i)
-	{
-		pSpace[i] = 0xCA;
-
-	}
-
+	e.LayoutSections();
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
 	// Dump the result
