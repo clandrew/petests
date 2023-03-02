@@ -102,8 +102,22 @@ public:
 		return true;
 	}
 
-	bool ExpandText(int amountToExpandBy)
+	void DumpText(char const* pDestFilename)
 	{
+		FILE* pFile;
+		fopen_s(&pFile, pDestFilename, "wb");
+		fwrite(m_pSingleTextSection->Data.data(), 1, m_pSingleTextSection->Data.size(), pFile);
+		fclose(pFile);
+	}
+
+	// Returns a pointer to the expanded space, valid if code is not expanded again
+	unsigned char* ExpandText(int amountToExpandBy)
+	{
+		if (amountToExpandBy == 0)
+		{
+			return nullptr;
+		}
+
 		// Do expansion
 		for (int i = 0; i < amountToExpandBy; ++i)
 		{
@@ -111,7 +125,8 @@ public:
 		}
 
 		m_size += amountToExpandBy;
-		return true;
+
+		return m_pSingleTextSection->Data.data() + m_pSingleTextSection->Data.size() - amountToExpandBy;
 	}
 
 	std::vector<unsigned char> SaveSections()
@@ -161,8 +176,14 @@ int main()
 
 	Executable e;
 	e.LoadSections(&sourceFileBytes);
-	e.ExpandText(1000);
+	e.DumpText("text.bin");
+	unsigned char* pSpace = e.ExpandText(1000);
 
+	for (int i = 0; i < 1000; ++i)
+	{
+		pSpace[i] = 0xCA;
+
+	}
 
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
