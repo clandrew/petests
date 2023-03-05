@@ -157,22 +157,25 @@ public:
 			m_pSingleTextSection->Data.push_back(0);
 		}
 
+		// This assumes that the text section is the first one.
+		assert(m_pSingleTextSection == &m_sections[0]);
+
+		int alignedAmount = ((amountToExpandBy + 0x200 - 1) / 0x200) * 0x200;
+
+		// Update header of the first section (the text section) and subsequent ones
+		m_sections[0].pSourceHeader->Misc.VirtualSize += amountToExpandBy; // Unaligned
+		m_sections[0].pSourceHeader->SizeOfRawData += alignedAmount;
+
+		m_sections[1].pSourceHeader->PointerToRawData += alignedAmount;
+		m_sections[2].pSourceHeader->PointerToRawData += alignedAmount;
+		m_sections[3].pSourceHeader->PointerToRawData += alignedAmount;
+		m_sections[4].pSourceHeader->PointerToRawData += alignedAmount;
+
 		m_size += amountToExpandBy;
 
 		unsigned char* pExpandedRegion = m_pSingleTextSection->Data.data() + m_pSingleTextSection->Data.size() - amountToExpandBy;
 
 		return pExpandedRegion;
-	}
-
-	void LayoutSections()
-	{
-		m_sections[0].pSourceHeader->Misc.VirtualSize += 0x200;
-		m_sections[0].pSourceHeader->SizeOfRawData += 0x200;
-
-		m_sections[1].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[2].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[3].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[4].pSourceHeader->PointerToRawData += 0x200;
 	}
 
 	std::vector<unsigned char> SaveSections()
@@ -230,7 +233,6 @@ int main()
 		pSpace[i] = 0xCD;
 	}
 
-	e.LayoutSections();
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
 	// Dump the result
