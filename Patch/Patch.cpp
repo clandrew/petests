@@ -106,6 +106,26 @@ public:
 		return true;
 	}
 
+	void DumpSectionHeaderInfoToTextFile(char const* pDestFilename)
+	{
+		std::ofstream strm(pDestFilename);
+		for (int i = 0; i < m_sections.size(); ++i)
+		{
+			strm << "Section #" << i << "\n";
+			strm << "\tName: " << m_sections[i].pSourceHeader->Name << "\n";
+			strm << "\tPhysicalAddress: " << std::hex << "0x" << m_sections[i].pSourceHeader->Misc.PhysicalAddress << "\n";
+			strm << "\tVirtualSize: " << std::hex << "0x" << m_sections[i].pSourceHeader->Misc.VirtualSize << "\n";
+			strm << "\tVirtualAddress: " << std::hex << "0x" << m_sections[i].pSourceHeader->VirtualAddress << "\n";
+			strm << "\tSizeOfRawData: " << m_sections[i].pSourceHeader->SizeOfRawData << "\n";
+			strm << "\tPointerToRelocations: " << std::hex << "0x" << m_sections[i].pSourceHeader->PointerToRelocations << "\n";
+			strm << "\tPointerToLinenumbers: " << m_sections[i].pSourceHeader->PointerToLinenumbers << "\n";
+			strm << "\tNumberOfRelocations: " << m_sections[i].pSourceHeader->NumberOfRelocations << "\n";
+			strm << "\tNumberOfLinenumbers: " << m_sections[i].pSourceHeader->NumberOfLinenumbers << "\n";
+			strm << "\tCharacteristics: " << std::hex << "0x" << m_sections[i].pSourceHeader->Characteristics << "\n";
+			strm << "\n";
+		}
+	}
+
 	void DumpText(char const* pDestFilename)
 	{
 		FILE* pFile;

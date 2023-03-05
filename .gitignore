@@ -4,3 +4,4 @@
 /Patch/.vs/*
 /Patch/Debug/*
 *.bin
+/Patch/Task.txt
