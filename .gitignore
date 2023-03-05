@@ -5,3 +5,4 @@
 /Patch/Debug/*
 *.bin
 /Patch/Task.txt
+/Patch/Sections*.txt

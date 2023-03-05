@@ -4,6 +4,7 @@
 #include "pch.h"
 #include <string>
 #include <vector>
+#include <fstream>
 #include <Windows.h>
 #include <assert.h>
 
@@ -13,6 +14,7 @@ class Executable
 	int m_size;
 	std::vector<unsigned char> m_dosHeaderBytes;
 	std::vector<unsigned char> m_ntHeaderBytes;
+	int m_fileAlignment;
 
 	struct Section
 	{
@@ -40,6 +42,8 @@ public:
 
 		IMAGE_NT_HEADERS* pNTHeader{};
 		pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader)+pDosHeader->e_lfanew);
+
+		m_fileAlignment = pNTHeader->OptionalHeader.FileAlignment;
 
 		unsigned char* pSignature = (unsigned char*)(&(pNTHeader->Signature));
 		if (pSignature[0] != 'P' || pSignature[1] != 'E' || pSignature[2] != 0 || pSignature[3] != 0)
@@ -113,10 +117,13 @@ public:
 		{
 			strm << "Section #" << i << "\n";
 			strm << "\tName: " << m_sections[i].pSourceHeader->Name << "\n";
-			strm << "\tPhysicalAddress: " << std::hex << "0x" << m_sections[i].pSourceHeader->Misc.PhysicalAddress << "\n";
+
+			// Since this is an executable, we pay attention to VirtualSize not PhysicalAddress.
 			strm << "\tVirtualSize: " << std::hex << "0x" << m_sections[i].pSourceHeader->Misc.VirtualSize << "\n";
+			
 			strm << "\tVirtualAddress: " << std::hex << "0x" << m_sections[i].pSourceHeader->VirtualAddress << "\n";
 			strm << "\tSizeOfRawData: " << m_sections[i].pSourceHeader->SizeOfRawData << "\n";
+			strm << "\tPointerToRawData: " << std::hex << "0x" << m_sections[i].pSourceHeader->PointerToRawData << "\n";
 			strm << "\tPointerToRelocations: " << std::hex << "0x" << m_sections[i].pSourceHeader->PointerToRelocations << "\n";
 			strm << "\tPointerToLinenumbers: " << m_sections[i].pSourceHeader->PointerToLinenumbers << "\n";
 			strm << "\tNumberOfRelocations: " << m_sections[i].pSourceHeader->NumberOfRelocations << "\n";
@@ -159,18 +166,13 @@ public:
 
 	void LayoutSections()
 	{
-		int destOffset = m_sections[0].pSourceHeader->PointerToRawData + m_sections[0].Data.size();
-		for (int i = 1; i < m_sections.size(); ++i)
-		{
-			m_sections[i].UpdatedPointerToRawData = destOffset;
-			destOffset += m_sections[i].Data.size();
-		}
+		m_sections[0].pSourceHeader->Misc.VirtualSize += 0x200;
+		m_sections[0].pSourceHeader->SizeOfRawData += 0x200;
 
-		for (int i = 0; i < m_sections.size(); ++i)
-		{
-			// Corrupts the executable.
-			//m_sections[i].pSourceHeader->PointerToRawData = m_sections[i].UpdatedPointerToRawData;
-		}
+		m_sections[1].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[2].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[3].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[4].pSourceHeader->PointerToRawData += 0x200;
 	}
 
 	std::vector<unsigned char> SaveSections()
@@ -220,8 +222,13 @@ int main()
 
 	Executable e;
 	e.LoadSections(&sourceFileBytes);
-	e.DumpText("text.bin");
-	unsigned char* pSpace = e.ExpandText(0x10);
+
+	//e.DumpText("text.bin");
+	unsigned char* pSpace = e.ExpandText(0x200);
+	for (int i = 0; i < 0x200; ++i)
+	{
+		pSpace[i] = 0xCD;
+	}
 
 	e.LayoutSections();
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
