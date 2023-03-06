@@ -20,8 +20,6 @@ class Executable
 	{
 		IMAGE_SECTION_HEADER* pSourceHeader;
 		std::vector<unsigned char> Data;
-		int OriginalPointerToRawData;
-		int UpdatedPointerToRawData;
 	};
 	std::vector<Section> m_sections;
 	Section* m_pSingleTextSection;
@@ -85,8 +83,6 @@ public:
 			{
 				m_sections[i].Data[j] = *(pStartOfSectionData + j);
 			}
-			m_sections[i].OriginalPointerToRawData = m_sections[i].pSourceHeader->PointerToRawData;
-			m_sections[i].UpdatedPointerToRawData = m_sections[i].pSourceHeader->PointerToRawData;
 
 			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
 			{
@@ -234,8 +230,34 @@ int main()
 	unsigned char* pSpace = e.ExpandText(0x200);
 	for (int i = 0; i < 0x200; ++i)
 	{
-		pSpace[i] = 0xCD;
+		pSpace[i] = 0xCC; // fill with breaks
 	}
+	pSpace[0] = 0x90; // NOP
+
+	// 8B 0D 50 30 4E 00    mov         ecx,dword ptr [__imp_std::cout (04E3050h)]
+	pSpace[0] = 0x8B;
+	pSpace[1] = 0x0D; 
+	pSpace[2] = 0x50;
+	pSpace[3] = 0x30; 
+	pSpace[4] = 0x4E;
+	pSpace[5] = 0x00; 
+
+	// BA 20 31 4E 00       mov         edx,offset string "Hello World!\n" (04E3120h)  
+	pSpace[6] = 0xBA;
+	pSpace[7] = 0x20;
+	pSpace[8] = 0x31;
+	pSpace[9] = 0x4E;
+	pSpace[10] = 0x00;
+	
+	// 56                   push        esi  
+	pSpace[11] = 0x56;
+
+	// E8 18 01 00 00       call        std::operator<<<std::char_traits<char> > (04E1130h) 
+	pSpace[12] = 0xE8;
+	pSpace[13] = 0x18;
+	pSpace[14] = 0x01;
+	pSpace[15] = 0x00;
+	pSpace[16] = 0x00;
 
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
