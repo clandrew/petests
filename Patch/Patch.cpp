@@ -160,16 +160,18 @@ public:
 		// This assumes that the text section is the first one.
 		assert(m_pSingleTextSection == &m_sections[0]);
 
-		int alignedAmount = ((amountToExpandBy + 0x200 - 1) / 0x200) * 0x200;
-
 		// Update header of the first section (the text section) and subsequent ones
 		m_sections[0].pSourceHeader->Misc.VirtualSize += amountToExpandBy; // Unaligned
-		m_sections[0].pSourceHeader->SizeOfRawData += alignedAmount;
 
-		m_sections[1].pSourceHeader->PointerToRawData += alignedAmount;
-		m_sections[2].pSourceHeader->PointerToRawData += alignedAmount;
-		m_sections[3].pSourceHeader->PointerToRawData += alignedAmount;
-		m_sections[4].pSourceHeader->PointerToRawData += alignedAmount;
+		int alignedSize = m_sections[0].pSourceHeader->Misc.VirtualSize;
+
+		alignedSize = ((alignedSize + 0x200) / 0x200) * 0x200;
+		m_sections[0].pSourceHeader->SizeOfRawData = alignedSize;
+
+		m_sections[1].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[2].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[3].pSourceHeader->PointerToRawData += 0x200;
+		m_sections[4].pSourceHeader->PointerToRawData += 0x200;
 
 		m_size += amountToExpandBy;
 
