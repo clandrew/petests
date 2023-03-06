@@ -166,12 +166,14 @@ public:
 		int alignedSize = m_sections[0].pSourceHeader->Misc.VirtualSize;
 
 		alignedSize = ((alignedSize + 0x200) / 0x200) * 0x200;
+		int shiftAmount = alignedSize - m_sections[0].pSourceHeader->SizeOfRawData;
 		m_sections[0].pSourceHeader->SizeOfRawData = alignedSize;
 
-		m_sections[1].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[2].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[3].pSourceHeader->PointerToRawData += 0x200;
-		m_sections[4].pSourceHeader->PointerToRawData += 0x200;
+		// Move pointers of all subsequent sections forward
+		for (int i = 1; i < m_sections.size(); ++i)
+		{
+			m_sections[i].pSourceHeader->PointerToRawData += shiftAmount;
+		}
 
 		m_size += amountToExpandBy;
 
