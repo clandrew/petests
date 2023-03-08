@@ -22,7 +22,8 @@ class Executable
 		std::vector<unsigned char> Data;
 	};
 	std::vector<Section> m_sections;
-	Section* m_pSingleTextSection;
+	Section* m_pTextSection;
+	Section* m_pRelocSection;
 
 public:
 
@@ -84,15 +85,29 @@ public:
 				m_sections[i].Data[j] = *(pStartOfSectionData + j);
 			}
 
+			m_pTextSection = nullptr;
+			m_pRelocSection = nullptr;
 			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".text") == 0)
 			{
-				if (!m_pSingleTextSection)
+				if (!m_pTextSection)
 				{
-					m_pSingleTextSection = &m_sections[i];
+					m_pTextSection = &m_sections[i];
 				}
 				else
 				{
-					m_pSingleTextSection = nullptr; // Multiple text sections. Ambiguous
+					m_pTextSection = nullptr; // Multiple text sections. Ambiguous
+				}
+			}
+
+			if (strcmp((char*)m_sections[i].pSourceHeader->Name, ".reloc") == 0)
+			{
+				if (!m_pRelocSection)
+				{
+					m_pRelocSection = &m_sections[i];
+				}
+				else
+				{
+					m_pRelocSection = nullptr; 
 				}
 			}
 		}
@@ -133,7 +148,15 @@ public:
 	{
 		FILE* pFile;
 		fopen_s(&pFile, pDestFilename, "wb");
-		fwrite(m_pSingleTextSection->Data.data(), 1, m_pSingleTextSection->Data.size(), pFile);
+		fwrite(m_pTextSection->Data.data(), 1, m_pTextSection->Data.size(), pFile);
+		fclose(pFile);
+	}
+
+	void DumpReloc(char const* pDestFilename)
+	{
+		FILE* pFile;
+		fopen_s(&pFile, pDestFilename, "wb");
+		fwrite(m_pRelocSection->Data.data(), 1, m_pRelocSection->Data.size(), pFile);
 		fclose(pFile);
 	}
 
@@ -145,16 +168,16 @@ public:
 			return nullptr;
 		}
 
-		unsigned char* pOriginalRegion = m_pSingleTextSection->Data.data();
+		unsigned char* pOriginalRegion = m_pTextSection->Data.data();
 
 		// Do expansion
 		for (int i = 0; i < amountToExpandBy; ++i)
 		{
-			m_pSingleTextSection->Data.push_back(0);
+			m_pTextSection->Data.push_back(0);
 		}
 
 		// This assumes that the text section is the first one.
-		assert(m_pSingleTextSection == &m_sections[0]);
+		assert(m_pTextSection == &m_sections[0]);
 
 		// Update header of the first section (the text section) and subsequent ones
 		m_sections[0].pSourceHeader->Misc.VirtualSize += amountToExpandBy; // Unaligned
@@ -173,9 +196,17 @@ public:
 
 		m_size += amountToExpandBy;
 
-		unsigned char* pExpandedRegion = m_pSingleTextSection->Data.data() + m_pSingleTextSection->Data.size() - amountToExpandBy;
+		unsigned char* pExpandedRegion = m_pTextSection->Data.data() + m_pTextSection->Data.size() - amountToExpandBy;
 
 		return pExpandedRegion;
+	}
+
+	void WipeReloc()
+	{
+		for (int i = 0; i < m_pRelocSection->Data.size(); ++i)
+		{
+			m_pRelocSection->Data[i] = 0;
+		}
 	}
 
 	std::vector<unsigned char> SaveSections()
@@ -227,7 +258,9 @@ int main()
 	e.LoadSections(&sourceFileBytes);
 
 	//e.DumpText("text.bin");
-	unsigned char* pSpace = e.ExpandText(0x200);
+	//e.DumpReloc("reloc.bin");
+
+	/*unsigned char* pSpace = e.ExpandText(0x200);
 	for (int i = 0; i < 0x200; ++i)
 	{
 		pSpace[i] = 0xCC; // fill with breaks
@@ -257,7 +290,7 @@ int main()
 	pSpace[13] = 0x18;
 	pSpace[14] = 0x01;
 	pSpace[15] = 0x00;
-	pSpace[16] = 0x00;
+	pSpace[16] = 0x00;*/
 
 	std::vector<unsigned char> destFileBytes = e.SaveSections();
 
