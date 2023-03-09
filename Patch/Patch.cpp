@@ -43,6 +43,14 @@ public:
 		pNTHeader = (IMAGE_NT_HEADERS*)((unsigned char*)(pDosHeader)+pDosHeader->e_lfanew);
 
 		m_fileAlignment = pNTHeader->OptionalHeader.FileAlignment;
+		
+		int numDataDirectoryEntries = pNTHeader->OptionalHeader.NumberOfRvaAndSizes;
+		std::vector<IMAGE_DATA_DIRECTORY> dataDirectoryEntries;
+		dataDirectoryEntries.resize(numDataDirectoryEntries);
+		char* pDataDirectory = reinterpret_cast<char*>(&pNTHeader->OptionalHeader.DataDirectory[0]);
+		memcpy(dataDirectoryEntries.data(), pDataDirectory, numDataDirectoryEntries * sizeof(IMAGE_DATA_DIRECTORY));
+
+		IMAGE_DATA_DIRECTORY const& relocationTable = dataDirectoryEntries[5];
 
 		unsigned char* pSignature = (unsigned char*)(&(pNTHeader->Signature));
 		if (pSignature[0] != 'P' || pSignature[1] != 'E' || pSignature[2] != 0 || pSignature[3] != 0)
